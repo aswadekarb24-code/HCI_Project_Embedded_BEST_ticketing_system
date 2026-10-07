@@ -1,0 +1,6 @@
+# Dependencies for tools/import_gtfs.py only (a maintainer-only, occasional
+# data-refresh script). The actual firmware build (scripts/build.sh ->
+# tools/generate_catalog.py) stays standard-library-only and needs none of
+# this. Install into a venv: python3 -m venv .venv && source .venv/bin/activate
+# && pip install -r tools/requirements.txt
+indic_transliteration>=2.3,<3
