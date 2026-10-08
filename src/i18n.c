@@ -7,7 +7,13 @@ static const char *HI[T_COUNT]={"बेस्ट में आपका स्�
  * so these strings deliberately avoid plain ",", ":" and "-" in favour of
  * the Gujarati-safe danda (।, U+0964) and Unicode hyphen (‐, U+2010). */
 static const char *GU[T_COUNT]={"બેસ્ટમાં આપનું સ્વાગત છે","માર્ગ પસંદ કરો","શરૂઆત","ગંતવ્ય","આગળ વધો","ચુકવણી કરો અને પુષ્ટિ કરો","ટિકિટ છાપો","મદદ","પાછા","રોકડ","કાર્ડ","યુપીઆઈ","પ્રિન્ટરમાં કાગળ નથી","ટિકિટ છપાઈ ગઈ","રંગીન માર્ગ પસંદ કરો","પહેલા શરૂઆત। પછી ગંતવ્ય પસંદ કરો","રદ કરો","નવી ટિકિટ","હેલ્પલાઇન ૧૮૦૦‐૨૨‐૭૫૫૦","માર્ગ","ભાડું","પસંદ કરવા માટે ક્લિક કરો"};
+static const char *const EXTRA[LANG_COUNT][T_COUNT-T_SAVE_PDF] = {
+    {"Save PDF", "Print", "Valid until", "Boarding stop", "PDF saved", "Could not create PDF", "Valid for 90 minutes after purchase"},
+    {"पीडीएफ जतन करा", "छापा", "वैधता समाप्ती", "चढण्याचे ठिकाण", "पीडीएफ जतन झाली", "पीडीएफ तयार होऊ शकली नाही", "खरेदीनंतर ९० मिनिटे वैध"},
+    {"पीडीएफ सहेजें", "प्रिंट करें", "वैधता समाप्ति", "चढ़ने का स्थान", "पीडीएफ सहेजा", "पीडीएफ नहीं बना", "खरीद के बाद ९० मिनट तक वैध"},
+    {"પીડીીએફ સાચવો", "છાપો", "મુદત પૂરી થશે", "ચડવાનું સ્થળ", "પીડીીએફ સાચવ્યો", "પીડીીએફ બનાવી શકાયો નહીં", "ખરીદી પછી ૯૦ મિનિટ સુધી માન્ય"}
+};
 static const char **const TABLES[LANG_COUNT] = {EN, MR, HI, GU};
 static const char *const NAMES[LANG_COUNT] = {"English", "मराठी", "हिन्दी", "ગુજરાતી"};
-const char *tr(Language l, TextKey k) { return TABLES[l][k]; }
+const char *tr(Language l, TextKey k) { return k >= T_SAVE_PDF ? EXTRA[l][k-T_SAVE_PDF] : TABLES[l][k]; }
 const char *language_name(Language l) { return NAMES[l]; }

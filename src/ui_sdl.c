@@ -6,11 +6,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#if defined(_WIN32)
+#include <windows.h>
+#include <shellapi.h>
+#endif
 #include "booking.h"
 #include "i18n.h"
 #include "catalog.h"
 #include "mapview.h"
 #include "search.h"
+#include "ticket_pdf.h"
+#include "ticket_qr.h"
 
 enum { WIDTH=1024, HEIGHT=720, SIDEBAR=270 };
 enum { ROUTE_ROWS=8, STOP_ROWS=8 };
@@ -239,24 +246,150 @@ static void draw_payment(App*a){
     button(a,(Box){20,640,120,45},tr(a->language,T_BACK),0x6C7A89);
     if(a->notice)centered(a,a->notice,(Box){0,535,WIDTH,35},0xD35400);
 }
+static Box ticket_save_box(void){return (Box){110,620,250,58};}
+static Box ticket_print_box(void){return (Box){387,620,250,58};}
+static Box ticket_new_box(void){return (Box){664,620,250,58};}
+
+static void draw_qr(App*a,int x,int y,int size,unsigned ticket_number){
+    enum { QUIET=4, GRID=TICKET_QR_SIZE+QUIET*2 };
+    unsigned char modules[TICKET_QR_SIZE][TICKET_QR_SIZE];
+    ticket_qr_encode(ticket_number,modules);
+    fill(a,(Box){x,y,size,size},0xFFFFFF);
+    int module=size/GRID;
+    int used=module*GRID;
+    int left=x+(size-used)/2+QUIET*module;
+    int top=y+(size-used)/2+QUIET*module;
+    for(int row=0;row<TICKET_QR_SIZE;row++)for(int col=0;col<TICKET_QR_SIZE;col++)
+        if(modules[row][col])fill(a,(Box){left+col*module,top+row*module,module,module},0x101820);
+}
+
+static void ticket_time_text(time_t when,char*out,size_t size){
+    struct tm local;
+    if(!when) { snprintf(out,size,"--"); return; }
+#if defined(_WIN32)
+    if(localtime_s(&local,&when)!=0) { snprintf(out,size,"--"); return; }
+#else
+    if(!localtime_r(&when,&local)) { snprintf(out,size,"--"); return; }
+#endif
+    if(!strftime(out,size,"%d %b %Y  %H:%M",&local))snprintf(out,size,"--");
+}
+
+static void draw_ticket_layout(App*a,Box b){
+    unsigned ticket_number=booking_ticket_id(&a->booking);
+    fill(a,b,0xFFFFFF);
+    fill(a,(Box){b.x,b.y,b.w,(int)(b.h*0.16)},0x073B4C);
+    text_f(a,latin_font(a),"BEST MUMBAI",b.x+(int)(b.w*0.045),b.y+(int)(b.h*0.035),0xFFFFFF);
+    char value[128];
+    snprintf(value,sizeof value,"TICKET  #%u",ticket_number);
+    int tw=0;TTF_SizeUTF8(latin_font(a),value,&tw,NULL);
+    text_f(a,latin_font(a),value,b.x+b.w-(int)(b.w*0.045)-tw,b.y+(int)(b.h*0.035),0xFFFFFF);
+
+    int left=b.x+(int)(b.w*0.055), top=b.y+(int)(b.h*0.205);
+    int left_width=(int)(b.w*0.54);
+    text(a,tr(a->language,T_ROUTE),left,top,0x58717C);
+    snprintf(value,sizeof value,"%s",a->booking.route->number);
+    text_f(a,latin_font(a),value,left,top+(int)(b.h*0.055),0x073B4C);
+
+    int stop_y=top+(int)(b.h*0.155);
+    text(a,tr(a->language,T_BOARDING),left,stop_y,0x58717C);
+    char stop[192];
+    fit_text(a,booking_stop_name(a,a->booking.start_stop),left_width,stop,sizeof stop);
+    text(a,stop,left,stop_y+(int)(b.h*0.052),0x172A35);
+    stop_y+=(int)(b.h*0.15);
+    text(a,tr(a->language,T_DESTINATION),left,stop_y,0x58717C);
+    fit_text(a,booking_stop_name(a,a->booking.end_stop),left_width,stop,sizeof stop);
+    text(a,stop,left,stop_y+(int)(b.h*0.052),0x172A35);
+
+    int qr_size=(int)(b.h*0.39);
+    int qr_x=b.x+b.w-(int)(b.w*0.055)-qr_size;
+    int qr_y=b.y+(int)(b.h*0.245);
+    draw_qr(a,qr_x,qr_y,qr_size,ticket_number);
+    ticket_qr_payload(ticket_number,value,sizeof value);
+    centered_f(a,latin_font(a),value,(Box){qr_x-(int)(b.w*.04),qr_y+qr_size+2,qr_size+(int)(b.w*.08),(int)(b.h*.05)},0x465C66);
+
+    int fare_y=b.y+(int)(b.h*.72);
+    fill(a,(Box){b.x+(int)(b.w*.045),fare_y,b.w-(int)(b.w*.09),(int)(b.h*.12)},0xEAF5F5);
+    snprintf(value,sizeof value,"Rs. %d",booking_fare(&a->booking));
+    text_f(a,latin_font(a),value,left,fare_y+(int)(b.h*.025),0x073B4C);
+    char until[80];
+    ticket_time_text(booking_valid_until(&a->booking),until,sizeof until);
+    int valid_x=b.x+(int)(b.w*.50);
+    text(a,tr(a->language,T_VALID_UNTIL),valid_x,fare_y+(int)(b.h*.015),0x58717C);
+    int vw=0;TTF_SizeUTF8(latin_font(a),until,&vw,NULL);
+    text_f(a,latin_font(a),until,b.x+b.w-(int)(b.w*.055)-vw,fare_y+(int)(b.h*.06),0x073B4C);
+
+    centered(a,tr(a->language,T_VALID_DURATION),(Box){b.x,b.y+(int)(b.h*.88),b.w,(int)(b.h*.06)},0x58717C);
+}
+
+static int draw_ticket_pdf_surface(App*a,SDL_Surface**surface_out){
+    enum { PAGE_W=1500, PAGE_H=900 };
+    SDL_Surface*surface=SDL_CreateRGBSurfaceWithFormat(0,PAGE_W,PAGE_H,32,SDL_PIXELFORMAT_RGBA32);
+    if(!surface)return 0;
+    SDL_Renderer*renderer=SDL_CreateSoftwareRenderer(surface);
+    if(!renderer){SDL_FreeSurface(surface);return 0;}
+    App page=*a;
+    page.renderer=renderer;
+    for(int i=0;i<LANG_COUNT;i++){
+        page.fonts[i]=TTF_OpenFont(i==LANG_MR||i==LANG_HI?"assets/fonts/NotoSansDevanagari-Regular.ttf":
+            i==LANG_GU?"assets/fonts/NotoSansGujarati-Regular.ttf":"assets/fonts/NotoSans-Regular.ttf",38);
+        if(!page.fonts[i]){
+            for(int j=0;j<i;j++)TTF_CloseFont(page.fonts[j]);
+            SDL_DestroyRenderer(renderer);SDL_FreeSurface(surface);return 0;
+        }
+    }
+    color(renderer,0xE9F4F6);SDL_RenderClear(renderer);
+    draw_ticket_layout(&page,(Box){54,54,PAGE_W-108,PAGE_H-108});
+    SDL_RenderPresent(renderer);
+    for(int i=0;i<LANG_COUNT;i++)TTF_CloseFont(page.fonts[i]);
+    SDL_DestroyRenderer(renderer);
+    *surface_out=surface;
+    return 1;
+}
+
+static int export_ticket_pdf(App*a,int print){
+    SDL_Surface*surface=NULL;
+    if(!draw_ticket_pdf_surface(a,&surface)){a->notice=tr(a->language,T_PDF_ERROR);return 0;}
+    char path[1024];
+    int ok=ticket_pdf_write(surface,booking_ticket_id(&a->booking),path,sizeof path);
+    SDL_FreeSurface(surface);
+    if(!ok){a->notice=tr(a->language,T_PDF_ERROR);return 0;}
+#if defined(_WIN32)
+    if(print){
+        HINSTANCE result=ShellExecuteA(NULL,"print",path,NULL,NULL,SW_SHOWNORMAL);
+        if((INT_PTR)result<=32){a->notice=tr(a->language,T_PDF_SAVED);return 1;}
+    } else {
+        char url[1200];
+        size_t at=0;
+        at+=(size_t)snprintf(url+at,sizeof url-at,"file:///");
+        for(const char*p=path;*p&&at+4<sizeof url;p++){
+            char c=*p=='\\'?'/':*p;
+            if(c==' ')at+=(size_t)snprintf(url+at,sizeof url-at,"%%20");
+            else url[at++]=c;
+            url[at]=0;
+        }
+        SDL_OpenURL(url);
+    }
+#else
+    char url[1200];
+    size_t at=(size_t)snprintf(url,sizeof url,"file://");
+    for(const char*p=path;*p&&at+4<sizeof url;p++){
+        if(*p==' ')at+=(size_t)snprintf(url+at,sizeof url-at,"%%20");
+        else url[at++]=*p;
+        url[at]=0;
+    }
+    SDL_OpenURL(url);
+#endif
+    a->notice=tr(a->language,T_PDF_SAVED);
+    return 1;
+}
+
 static void draw_ticket(App*a){
     header(a,tr(a->language,T_TICKET_READY));
-    fill(a,(Box){250,110,524,480},0xFFFFFF);
-    centered_f(a,latin_font(a),"BEST Mumbai",(Box){250,140,524,45},0x073B4C);
-    char s[256];
-    snprintf(s,sizeof s,"Ticket #%u",a->booking.ticket_number-1);
-    centered_f(a,latin_font(a),s,(Box){250,200,524,35},0x222222);
-    snprintf(s,sizeof s,"Route %s",a->booking.route->number);
-    centered_f(a,latin_font(a),s,(Box){250,255,524,35},0x222222);
-    char start[100],end[100];
-    fit_text(a,booking_stop_name(a,a->booking.start_stop),480,start,sizeof start);
-    fit_text(a,booking_stop_name(a,a->booking.end_stop),480,end,sizeof end);
-    centered(a,start,(Box){250,310,524,35},0x222222);
-    centered_f(a,latin_font(a),"to",(Box){250,350,524,35},0x222222);
-    centered(a,end,(Box){250,390,524,35},0x222222);
-    snprintf(s,sizeof s,"Rs. %d",booking_fare(&a->booking));
-    centered_f(a,latin_font(a),s,(Box){250,445,524,35},0x222222);
-    button(a,(Box){380,620,264,55},tr(a->language,T_NEW_TICKET),0x118AB2);
+    draw_ticket_layout(a,(Box){130,95,764,500});
+    button(a,ticket_save_box(),tr(a->language,T_SAVE_PDF),0x118AB2);
+    button(a,ticket_print_box(),tr(a->language,T_PRINT_PDF),0x27AE60);
+    button(a,ticket_new_box(),tr(a->language,T_NEW_TICKET),0x6C7A89);
+    if(a->notice)centered(a,a->notice,(Box){200,585,624,28},0xD35400);
 }
 static void draw_help(App*a){
     header(a,tr(a->language,T_HELP));
@@ -389,7 +522,11 @@ static void click(App*a,int x,int y){
         else if(inside(map_box(),x,y)){int ix,iy;Box b=map_box();camera_screen_to_image(&a->camera,b.x,b.y,b.w,b.h,x,y,&ix,&iy);camera_pan_to(&a->camera,ix,iy);}
     }
     else if(a->screen==SCREEN_PAYMENT){if(inside((Box){20,640,120,45},x,y)){a->screen=SCREEN_STOPS;return;}if(inside((Box){190,280,190,80},x,y))a->booking.payment=PAY_CASH;else if(inside((Box){417,280,190,80},x,y))a->booking.payment=PAY_CARD;else if(inside((Box){644,280,190,80},x,y))a->booking.payment=PAY_UPI;else if(inside((Box){365,440,294,65},x,y)){BookingError e=booking_complete(&a->booking);if(e==BOOKING_OK){a->notice=NULL;a->screen=SCREEN_TICKET;}else if(e==BOOKING_PRINTER_EMPTY)a->notice=tr(a->language,T_PRINTER_EMPTY);}}
-    else if(a->screen==SCREEN_TICKET&&inside((Box){380,620,264,55},x,y)){a->screen=SCREEN_ROUTE;camera_init(&a->camera);}else if(a->screen==SCREEN_HELP&&inside((Box){420,470,180,55},x,y))a->screen=SCREEN_ROUTE;
+    else if(a->screen==SCREEN_TICKET){
+        if(inside(ticket_save_box(),x,y)){export_ticket_pdf(a,0);return;}
+        if(inside(ticket_print_box(),x,y)){export_ticket_pdf(a,1);return;}
+        if(inside(ticket_new_box(),x,y)){a->screen=SCREEN_ROUTE;a->notice=NULL;camera_init(&a->camera);}
+    }else if(a->screen==SCREEN_HELP&&inside((Box){420,470,180,55},x,y))a->screen=SCREEN_ROUTE;
 }
 
 static TTF_Font *open_font(const char *path){TTF_Font *f=TTF_OpenFont(path,18);if(!f)fprintf(stderr,"Failed to open font %s: %s\n",path,TTF_GetError());return f;}

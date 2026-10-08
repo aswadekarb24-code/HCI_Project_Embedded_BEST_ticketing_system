@@ -1,6 +1,6 @@
 # Developer setup
 
-The graphical emulator needs CMake, Ninja, SDL2, and SDL2_ttf. SDL2_ttf must be built with HarfBuzz support (true of all mainstream distro packages) for correct Devanagari/Gujarati shaping (conjuncts, reph, matra reordering). Fonts are bundled in `assets/fonts/` -- no system font install is required for the app to run correctly.
+The graphical emulator needs CMake, Ninja, SDL2, SDL2_ttf, and zlib. SDL2_ttf must be built with HarfBuzz support (true of all mainstream distro packages) for correct Devanagari/Gujarati shaping (conjuncts, reph, matra reordering). Fonts are bundled in `assets/fonts/` -- no system font install is required for the app to run correctly. Tickets are generated locally as a high-resolution PDF, with no network access.
 
 Run the appropriate prerequisite installation yourself:
 
