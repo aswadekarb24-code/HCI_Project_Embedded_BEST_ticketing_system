@@ -370,6 +370,7 @@ static int export_ticket_pdf(App*a,int print){
         SDL_OpenURL(url);
     }
 #else
+    (void)print;
     char url[1200];
     size_t at=(size_t)snprintf(url,sizeof url,"file://");
     for(const char*p=path;*p&&at+4<sizeof url;p++){
