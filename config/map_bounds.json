@@ -1,0 +1,9 @@
+{
+  "_comment": "Geographic extent of assets/mumbai_satellite.png. Shared by tools/fetch_basemap.py, tools/import_gtfs.py and src/mapview.c so the basemap image and the projected route/stop coordinates can never drift apart. Padded slightly beyond the real BEST stop bounding box (lat 18.900-19.312, lon 72.786-73.106).",
+  "lon_min": 72.78,
+  "lon_max": 73.12,
+  "lat_min": 18.88,
+  "lat_max": 19.33,
+  "image_width": 1548,
+  "image_height": 2048
+}

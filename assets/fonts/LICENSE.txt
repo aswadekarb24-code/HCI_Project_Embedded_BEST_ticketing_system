@@ -1,0 +1,8 @@
+Fonts in this directory (NotoSans-Regular.ttf, NotoSansDevanagari-Regular.ttf,
+NotoSansGujarati-Regular.ttf) are Google Noto Fonts, licensed under the SIL Open
+Font License, Version 1.1. See https://openfontlicense.org/ for the full license
+text and https://notofonts.github.io/ for the font project.
+
+Bundling them here makes Marathi, Hindi, Gujarati and English text render
+correctly offline, without depending on fonts being pre-installed on the host
+or target system.
