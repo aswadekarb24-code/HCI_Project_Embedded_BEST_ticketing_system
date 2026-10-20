@@ -18,11 +18,16 @@
 #include "search.h"
 #include "ticket_pdf.h"
 #include "ticket_qr.h"
+#include "timetable.h"
 
 enum { WIDTH=1024, HEIGHT=720, SIDEBAR=270 };
 enum { ROUTE_ROWS=8, STOP_ROWS=8 };
 enum { QUERY_CAP=24 };
-typedef struct { SDL_Window *window; SDL_Renderer *renderer; SDL_Texture *map_texture; TTF_Font *fonts[LANG_COUNT]; Booking booking; Screen screen; Language language; Camera camera; int route_scroll; int stop_scroll; const char *notice; bool searching; char route_query[QUERY_CAP]; char stop_query[QUERY_CAP]; } App;
+/* previous_screen: where to return to from SCREEN_TIMETABLE's go-back button
+ * -- whichever screen the timetable button was pressed from (SCREEN_ROUTE or
+ * SCREEN_STOPS), so entering/leaving the timetable never loses the user's
+ * place in the booking flow. */
+typedef struct { SDL_Window *window; SDL_Renderer *renderer; SDL_Texture *map_texture; TTF_Font *fonts[LANG_COUNT]; Booking booking; Screen screen; Screen previous_screen; Language language; Camera camera; int route_scroll; int stop_scroll; const char *notice; bool searching; char route_query[QUERY_CAP]; char stop_query[QUERY_CAP]; } App;
 typedef struct { int x,y,w,h; } Box;
 
 static bool inside(Box b,int x,int y){return x>=b.x&&x<b.x+b.w&&y>=b.y&&y<b.y+b.h;}
@@ -92,7 +97,18 @@ static TTF_Font *latin_font(App*a){return a->fonts[LANG_EN];}
 static const char *stop_name(App*a,const Stop*s){switch(a->language){case LANG_MR:return s->name_mr;case LANG_HI:return s->name_hi;case LANG_GU:return s->name_gu;default:return s->name_en;}}
 static const char *route_name(App*a,const Route*r){switch(a->language){case LANG_MR:return r->name_mr;case LANG_HI:return r->name_hi;case LANG_GU:return r->name_gu;default:return r->name_en;}}
 static const char *booking_stop_name(App*a,int i){return stop_name(a,&a->booking.route->stops[i]);}
-static void header(App*a,const char*title){fill(a,(Box){0,0,WIDTH,70},0x073B4C);text(a,title,22,23,0xFFFFFF);Language next=(Language)((a->language+1)%LANG_COUNT);button_f(a,a->fonts[next],(Box){845,15,155,40},language_name(next),0x118AB2);}
+static Box timetable_box(void){return (Box){650,15,180,40};}
+/* Drawn (and clickable, see click()) on every screen's top bar except the
+ * timetable screen itself -- disabled/grey, same convention as the map's
+ * zoom/scroll buttons, until a route is picked (SCREEN_STOPS onward), since
+ * there is nothing to show a schedule for before that. */
+static void header(App*a,const char*title){
+    fill(a,(Box){0,0,WIDTH,70},0x073B4C);
+    text(a,title,22,23,0xFFFFFF);
+    if(a->screen!=SCREEN_TIMETABLE)button(a,timetable_box(),tr(a->language,T_TIMETABLE),a->booking.route?0x118AB2:0xB0BEC5);
+    Language next=(Language)((a->language+1)%LANG_COUNT);
+    button_f(a,a->fonts[next],(Box){845,15,155,40},language_name(next),0x118AB2);
+}
 
 static Box map_box(void){return (Box){SIDEBAR,70,WIDTH-SIDEBAR,HEIGHT-70};}
 static Box zoom_in_box(void){return (Box){WIDTH-65,80,50,40};}
@@ -401,6 +417,39 @@ static void draw_help(App*a){
     centered_f(a,latin_font(a),"Bus route data: croyla/mumbai-gtfs (MIT-0)",(Box){0,380,WIDTH,35},0x555555);
     button(a,(Box){420,470,180,55},tr(a->language,T_BACK),0x118AB2);
 }
+
+static Box timetable_card_box(void){return (Box){132,95,760,560};}
+/* MAX_DEPARTURES (48) laid out as a fixed 6x8 grid -- deliberately no
+ * scrolling/search here, unlike the route/stop lists: the whole
+ * (already-subsampled, see tools/import_timetables.py) approximate schedule
+ * fits on screen at once, which keeps "visible status" trivially true. */
+static Box timetable_cell_box(int row,int col){Box c=timetable_card_box();return (Box){c.x+24+col*119,c.y+90+row*56,113,50};}
+static Box timetable_back_box(void){return (Box){412,660,200,50};}
+
+static void draw_timetable(App*a){
+    header(a,tr(a->language,T_TIMETABLE));
+    fill(a,(Box){0,70,WIDTH,HEIGHT-70},0xE9F4F6);
+    Box card=timetable_card_box();
+    fill(a,card,0xFFFFFF);
+    const Route *route=a->booking.route;
+    const RouteTimetable *tt=route?timetable_for_route(route):NULL;
+    size_t count=tt?tt->departure_count:0;
+    if(route){
+        int lx=card.x+24;
+        char label[32];snprintf(label,sizeof label,"%s ",tr(a->language,T_ROUTE));
+        text(a,label,lx,card.y+22,0x073B4C);{int w;TTF_SizeUTF8(a->fonts[a->language],label,&w,NULL);lx+=w;}
+        char number[32];snprintf(number,sizeof number,"%s - ",route->number);
+        text_f(a,latin_font(a),number,lx,card.y+22,0x073B4C);{int w;TTF_SizeUTF8(latin_font(a),number,&w,NULL);lx+=w;}
+        char rname[220];fit_text(a,route_name(a,route),card.x+card.w-24-lx,rname,sizeof rname);
+        text(a,rname,lx,card.y+22,0x073B4C);
+    }
+    if(count==0)centered(a,tr(a->language,T_NO_TIMETABLE),(Box){card.x,card.y+260,card.w,40},0x6C7A89);
+    else for(size_t i=0;i<count;i++){
+        int row=(int)(i/6),col=(int)(i%6);
+        button_f(a,latin_font(a),timetable_cell_box(row,col),tt->departures[i],0x118AB2);
+    }
+    button(a,timetable_back_box(),tr(a->language,T_BACK),0x6C7A89);
+}
 /* On-screen keypad for the route-number / stop-name search (Latin only --
  * route codes and the GTFS source stop names are always plain ASCII, see
  * ci_contains()/filter_routes()/filter_stops()). draw_keyboard() and
@@ -459,7 +508,7 @@ static void click_keyboard(App*a,int x,int y){
 static void render(App*a){
     color(a->renderer,0xFFFFFF);SDL_RenderClear(a->renderer);
     if(a->searching)draw_keyboard(a);
-    else switch(a->screen){case SCREEN_ROUTE:draw_route(a);break;case SCREEN_STOPS:draw_stops(a);break;case SCREEN_PAYMENT:draw_payment(a);break;case SCREEN_TICKET:draw_ticket(a);break;case SCREEN_HELP:draw_help(a);break;default:break;}
+    else switch(a->screen){case SCREEN_ROUTE:draw_route(a);break;case SCREEN_STOPS:draw_stops(a);break;case SCREEN_PAYMENT:draw_payment(a);break;case SCREEN_TICKET:draw_ticket(a);break;case SCREEN_HELP:draw_help(a);break;case SCREEN_TIMETABLE:draw_timetable(a);break;default:break;}
     SDL_RenderPresent(a->renderer);
 }
 
@@ -484,6 +533,13 @@ static void click(App*a,int x,int y){
      * moment searching started, since click_keyboard() never tested for
      * it and the early return skipped this check entirely. */
     if(inside((Box){845,15,155,40},x,y)){a->language=(Language)((a->language+1)%LANG_COUNT);return;}
+    /* Same reasoning as the language button above: stays clickable
+     * regardless of a->searching, and is only live once a route is picked
+     * (see header()'s grey/blue gating) -- never reachable from the
+     * timetable screen itself, which draws its own go-back button instead. */
+    if(a->screen!=SCREEN_TIMETABLE&&a->booking.route&&inside(timetable_box(),x,y)){
+        a->previous_screen=a->screen;a->screen=SCREEN_TIMETABLE;a->searching=false;return;
+    }
     if(a->searching){click_keyboard(a,x,y);return;}
     if(a->screen==SCREEN_ROUTE){
         if(handle_map_click(a,x,y))return;
@@ -519,7 +575,15 @@ static void click(App*a,int x,int y){
             if(i>=matches)break;
             if(inside(stop_row_box(row),x,y))s=(int)idx[i];
         }
-        if(s>=0){if(a->booking.start_stop<0)a->booking.start_stop=s;else a->booking.end_stop=s;}
+        /* Tapping the stop already highlighted as start/end (green/orange,
+         * see draw_map()) un-picks it, instead of only being undoable by
+         * going all the way back to the route list and starting over. */
+        if(s>=0){
+            if(s==a->booking.start_stop)a->booking.start_stop=-1;
+            else if(s==a->booking.end_stop)a->booking.end_stop=-1;
+            else if(a->booking.start_stop<0)a->booking.start_stop=s;
+            else a->booking.end_stop=s;
+        }
         else if(inside(map_box(),x,y)){int ix,iy;Box b=map_box();camera_screen_to_image(&a->camera,b.x,b.y,b.w,b.h,x,y,&ix,&iy);camera_pan_to(&a->camera,ix,iy);}
     }
     else if(a->screen==SCREEN_PAYMENT){if(inside((Box){20,640,120,45},x,y)){a->screen=SCREEN_STOPS;return;}if(inside((Box){190,280,190,80},x,y))a->booking.payment=PAY_CASH;else if(inside((Box){417,280,190,80},x,y))a->booking.payment=PAY_CARD;else if(inside((Box){644,280,190,80},x,y))a->booking.payment=PAY_UPI;else if(inside((Box){365,440,294,65},x,y)){BookingError e=booking_complete(&a->booking);if(e==BOOKING_OK){a->notice=NULL;a->screen=SCREEN_TICKET;}else if(e==BOOKING_PRINTER_EMPTY)a->notice=tr(a->language,T_PRINTER_EMPTY);}}
@@ -528,6 +592,7 @@ static void click(App*a,int x,int y){
         if(inside(ticket_print_box(),x,y)){export_ticket_pdf(a,1);return;}
         if(inside(ticket_new_box(),x,y)){a->screen=SCREEN_ROUTE;a->notice=NULL;camera_init(&a->camera);}
     }else if(a->screen==SCREEN_HELP&&inside((Box){420,470,180,55},x,y))a->screen=SCREEN_ROUTE;
+    else if(a->screen==SCREEN_TIMETABLE&&inside(timetable_back_box(),x,y))a->screen=a->previous_screen;
 }
 
 static TTF_Font *open_font(const char *path){TTF_Font *f=TTF_OpenFont(path,18);if(!f)fprintf(stderr,"Failed to open font %s: %s\n",path,TTF_GetError());return f;}

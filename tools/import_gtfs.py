@@ -29,6 +29,12 @@ tools/generate_catalog.py that actually runs during scripts/build.sh. It:
 Needs network access and the packages in tools/requirements.txt (use a venv:
 see that file's header comment). Writes config/routes.json, which is then
 committed and consumed by the network-free tools/generate_catalog.py.
+
+Each entry's "route_id" (the raw GTFS id, e.g. "11-2") is carried through
+unused by generate_catalog.py -- it's the join key tools/import_timetables.py
+uses to attach the right direction's schedule, since route numbers alone are
+not unique (BEST's up/down directions are separate route_ids sharing one
+rider-facing number).
 """
 import argparse
 import csv
@@ -55,6 +61,18 @@ _GUJARATI_SAFE = re.compile(r"[^઀-૿।॥​-‍‐₹\s]")
 
 def sanitize_gujarati(text):
     return " ".join(_GUJARATI_SAFE.sub(" ", text).split())
+
+
+# The GTFS feed's route_long_name encodes direction as "A ⇆ B" (U+21C6
+# LEFTWARDS ARROW OVER RIGHTWARDS ARROW). Confirmed via fontTools cmap
+# inspection: none of the three bundled Noto fonts include that glyph, so it
+# rendered as a tofu box wherever a route's full long name is shown
+# un-truncated (e.g. the kiosk's timetable screen). Swap it for the Unicode
+# hyphen (U+2010) already used elsewhere in this codebase for exactly this
+# reason (see sanitize_gujarati() above / the Gujarati strings in
+# src/i18n.c) -- it's present in all three bundled fonts.
+def normalize_long_name(text):
+    return text.replace("⇆", "‐")
 
 ROOT = Path(__file__).resolve().parents[1]
 GTFS_URL = "https://raw.githubusercontent.com/croyla/mumbai-gtfs/main/gtfs_compat.zip"
@@ -229,10 +247,11 @@ def build_routes_json(zf, bounds, agency, max_stops, limit=None):
         if len(stop_entries) < 2:
             continue
 
-        long_name = route["route_long_name"]
+        long_name = normalize_long_name(route["route_long_name"])
         deva_name, guj_name = translit.convert(long_name)
         built.append(
             {
+                "route_id": route_id,
                 "number": route["route_short_name"],
                 "name_en": long_name,
                 "name_mr": deva_name,

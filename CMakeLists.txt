@@ -7,7 +7,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 
 include_directories(include generated)
-set(CORE_SOURCES src/catalog.c src/booking.c src/i18n.c src/mapview.c src/search.c)
+set(CORE_SOURCES src/catalog.c src/booking.c src/i18n.c src/mapview.c src/search.c src/timetable.c)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
@@ -28,7 +28,7 @@ else()
 endif()
 
 enable_testing()
-foreach(test_name booking catalog i18n mapview search)
+foreach(test_name booking catalog i18n mapview search timetable)
   add_executable(test-${test_name} tests/test_${test_name}.c ${CORE_SOURCES})
   add_test(NAME ${test_name} COMMAND test-${test_name})
 endforeach()

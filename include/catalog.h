@@ -15,4 +15,10 @@ typedef struct { const char *number; const char *name_en; const char *name_mr; c
 const Route *catalog_routes(size_t *count);
 const Route *catalog_find_route(const char *number);
 int catalog_stop_index(const Route *route, int x, int y, int radius);
+/* Index of `route` within catalog_routes()'s array, or -1 if not a pointer
+ * into it. Route numbers are not unique (GTFS has separate up/down
+ * route_ids sharing one rider-facing number), so this index -- not the
+ * number string -- is the only safe join key into a parallel,
+ * generated-in-the-same-order table (see timetable.h). */
+int catalog_route_index(const Route *route);
 #endif

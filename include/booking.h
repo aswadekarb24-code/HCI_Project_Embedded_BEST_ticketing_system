@@ -6,7 +6,7 @@
 
 #define BOOKING_VALIDITY_SECONDS ((time_t)90 * 60)
 
-typedef enum { SCREEN_WELCOME, SCREEN_ROUTE, SCREEN_STOPS, SCREEN_PAYMENT, SCREEN_TICKET, SCREEN_HELP } Screen;
+typedef enum { SCREEN_WELCOME, SCREEN_ROUTE, SCREEN_STOPS, SCREEN_PAYMENT, SCREEN_TICKET, SCREEN_HELP, SCREEN_TIMETABLE } Screen;
 typedef enum { PAY_CASH, PAY_CARD, PAY_UPI } PaymentMethod;
 typedef enum { BOOKING_OK, BOOKING_NO_ROUTE, BOOKING_STOP_INCOMPLETE, BOOKING_SAME_STOP, BOOKING_STOP_OUT_OF_RANGE, BOOKING_PRINTER_EMPTY } BookingError;
 typedef struct { const Route *route; int start_stop; int end_stop; PaymentMethod payment; int printer_paper; unsigned ticket_number; time_t purchased_at; } Booking;
